@@ -4,7 +4,7 @@ import { RefreshCw, AlertCircle, Activity, CheckCircle2, Clock, List, Download }
 import Charts from './Charts';
 import Leaderboard from './Leaderboard';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const AUTO_REFRESH_INTERVAL = 10000; // 10 seconds
 
 const Dashboard = ({ mode }) => {
