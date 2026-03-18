@@ -6,49 +6,34 @@ const Complaint = require('../models/Complaint');
 router.get('/', async (req, res) => {
   try {
     const { source } = req.query;
-    
-    // Build match object for filtering
-    const baseMatch = {};
-    if (source) {
-      baseMatch.source = source;
-    }
+    const baseMatch = source ? { source } : {};
 
-    // --- Pipeline 1: totalComplaints + assignedCount per department (all records) ---
+    // --- Pipeline 1: Volume ---
     const volumePipeline = [
       { $match: baseMatch },
       {
         $group: {
           _id: '$department',
           totalComplaints: { $sum: 1 },
-          // Count non-resolved (PENDING, IN_PROGRESS, etc.)
-          assignedCount: {
-            $sum: {
-              $cond: [{ $ne: ['$status', 'RESOLVED'] }, 1, 0]
-            }
-          }
+          assignedCount: { $sum: { $cond: [{ $ne: ['$status', 'RESOLVED'] }, 1, 0] } }
         }
       }
     ];
 
-    // --- Pipeline 2: avgResolutionTime only for RESOLVED with valid dates ---
-    const resolutionMatch = { 
-      ...baseMatch,
-      status: 'RESOLVED',
-      resolvedAt: { $ne: null, $type: 'date' },
-      createdAt: { $type: 'date' }
-    };
-
+    // --- Pipeline 2: Resolution ---
     const resolutionPipeline = [
-      { $match: resolutionMatch },
+      {
+        $match: {
+          ...baseMatch,
+          status: 'RESOLVED',
+          resolvedAt: { $ne: null, $type: 'date' },
+          createdAt: { $type: 'date' }
+        }
+      },
       {
         $project: {
           department: 1,
-          resolutionTime: {
-            $divide: [
-              { $subtract: ['$resolvedAt', '$createdAt'] },
-              1000 * 60 * 60  // ms → hours
-            ]
-          }
+          resolutionTime: { $divide: [{ $subtract: ['$resolvedAt', '$createdAt'] }, 1000 * 60 * 60] }
         }
       },
       {
@@ -59,39 +44,47 @@ router.get('/', async (req, res) => {
       }
     ];
 
-    const [volumeData, resolutionData] = await Promise.all([
+    // --- Pipeline 3: Trends ---
+    const trendsPipeline = [
+      { $match: baseMatch },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { "_id": 1 } }
+    ];
+
+    const [volume, resolution, trends] = await Promise.all([
       Complaint.aggregate(volumePipeline),
-      Complaint.aggregate(resolutionPipeline)
+      Complaint.aggregate(resolutionPipeline),
+      Complaint.aggregate(trendsPipeline)
     ]);
 
-    // Build a lookup map for resolution times
-    const resolutionMap = {};
-    resolutionData.forEach((r) => {
-      resolutionMap[r._id] = r.avgResolutionTime;
-    });
+    const resMap = {};
+    resolution.forEach(r => resMap[r._id] = r.avgResolutionTime);
 
-    // Merge into single array, sort by avgResolutionTime ascending (null last)
-    const merged = volumeData.map((v) => ({
+    const summary = volume.map(v => ({
       _id: v._id,
       totalComplaints: v.totalComplaints,
       assignedCount: v.assignedCount,
-      avgResolutionTime: resolutionMap[v._id] ?? null
-    }));
+      avgResolutionTime: resMap[v._id] ?? null
+    })).sort((a,b) => (a.avgResolutionTime || 999) - (b.avgResolutionTime || 999));
 
-    merged.sort((a, b) => {
-      if (a.avgResolutionTime === null) return 1;
-      if (b.avgResolutionTime === null) return -1;
-      return a.avgResolutionTime - b.avgResolutionTime;
-    });
+    res.json({ summary, trends });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
-    console.log('[DASHBOARD] Aggregation output:', JSON.stringify(merged, null, 2));
-
-    res.json(merged);
-  } catch (error) {
-    console.error('[DASHBOARD] Error:', error);
-    res.status(500).json({ error: 'Server error fetching dashboard data' });
+router.delete('/reset', async (req, res) => {
+  try {
+    await Complaint.deleteMany({});
+    res.json({ message: 'Success' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
 module.exports = router;
-

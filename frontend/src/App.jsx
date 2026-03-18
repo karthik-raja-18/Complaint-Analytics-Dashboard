@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'r
 import { AuthProvider, AuthContext } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Sidebar from './components/Sidebar';
+import AIChatbot from './components/AIChatbot';
 
 import Landing from './components/Landing';
 import Login from './components/Login';
@@ -64,6 +65,7 @@ const AppContent = () => {
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          <AIChatbot />
         </div>
       </div>
     </div>

@@ -29,9 +29,30 @@ app.get('/api/test', (req, res) => {
 });
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/complaints")
-  .then(() => console.log('Connected to MongoDB'))
-  .catch((err) => console.error('Error connecting to MongoDB:', err));
+// MongoDB Connection
+if (!process.env.MONGO_URI) {
+  console.error('❌ FATAL: MONGO_URI is missing from .env file!');
+}
+
+console.log('Connecting to MongoDB at:', process.env.MONGO_URI?.split('@').pop()); // log cluster only for privacy
+
+mongoose.connect(process.env.MONGO_URI, {
+  serverSelectionTimeoutMS: 5000, // fail faster (5s) so you don't wait 30s for the 500 error
+})
+  .then(() => {
+    console.log('✅ Connected to MongoDB Atlas successfully.');
+  })
+  .catch(err => {
+    console.error('❌ MongoDB Connection Error:', err.message);
+    if (err.message.includes('whitelisted')) {
+      console.error('👉 TIP: Check your MongoDB Atlas "Network Access" and add your current IP.');
+    }
+  });
+
+// Auth Secret Check
+if (!process.env.JWT_SECRET) {
+  console.warn('⚠️ WARNING: JWT_SECRET is not set. Authentication will fail.');
+}
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
